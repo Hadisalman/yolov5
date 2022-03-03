@@ -22,7 +22,7 @@ class Variable2DArrayDecoder(Operation):
     def declare_state_and_memory(self, previous_state: State) -> Tuple[State, AllocationQuery]:
         max_len = self.metadata['len'].max()
 
-        my_shape = (max_size, self.field.second_dim)
+        my_shape = (max_len, self.field.second_dim)
         return (
             replace(previous_state, jit_mode=True,
                     shape=my_shape,
