@@ -12,6 +12,7 @@ from ffcv.pipeline.allocation_query import AllocationQuery
 from ffcv.libffcv import memcpy
 
 from ffcv.fields import BytesDecoder, BytesField
+from ffcv.fields.basics import BasicDecoder
 
 if TYPE_CHECKING:
     from ..memory_managers.base import MemoryManage
@@ -55,14 +56,13 @@ Variable2DArrayArgsType = np.dtype([
 
 class Variable2DArrayField(Field):
     """
-    A subclass of :class:`~ffcv.fields.Field` supporting variable-length byte
-    arrays.
+    A subclass of :class:`~ffcv.fields.Field` supporting variable-length 2D numpy arrays of any dtype.
 
-    Intended for use with data such as text or raw data which may not have a
-    fixed size. Data is written sequentially while saving pointers and read by
-    pointer lookup.
+    Intended for use with certain np.array data types (i.e., bounding box labels for object detection)
+    which have variable length across data samples.
 
-    The writer expects to be passed a 1D uint8 numpy array of variable length for each sample.
+    The writer expects to be passed a 2D numpy array of shape (k, c) for each sample,
+    where k is variable and c is constant across the dataset.
     """
     def __init__(self, second_dim, dtype):
         self.second_dim = second_dim
@@ -110,3 +110,80 @@ class Variable2DArrayField(Field):
 
     def get_decoder_class(self) -> Type[Operation]:
         return Variable2DArrayDecoder
+
+
+class StringDecoder(BasicDecoder):
+
+    ## Will the basic decoder work?
+    ## This was used for fixed length int or float data but the strings are variable length now
+
+    max_len = self.metadata['len'].max()
+    dtype = np.dtype(('U', max_len))
+
+class StringField(Field):
+    """
+    A subclass of :class:`~ffcv.fields.Field` supporting string values of variable length
+    """
+    def __init__(self):
+        pass
+
+    @property
+    def metadata_type(self) -> np.dtype:
+        return np.dtype([
+            ('len', '<u8')
+        ])
+
+    @staticmethod
+    def from_binary(binary: ARG_TYPE) -> Field:
+        return StringField()
+
+
+    def to_binary(self) -> ARG_TYPE:
+        return np.zeros(1, dtype=ARG_TYPE)[0]
+
+
+    def encode(self, destination, field, malloc):
+        destination[0] = field
+        destination['len'] = len(field)
+
+
+    def get_decoder_class(self) -> Type[Operation]:
+        return StringDecoder
+
+
+
+CocoDType = np.dtype([
+    ('dim', '<u8', (2,)),
+    ('ratio_pad', '<f8', (2,2))
+])
+
+class CocoShapeDecoder(BasicDecoder):
+    dtype = CocoDType
+
+class CocoShapeField(Field):
+    """
+    A subclass of :class:`~ffcv.fields.Field` supporting (scalar) floating-point (float64)
+    values.
+    """
+    def __init__(self):
+        pass
+
+    @property
+    def metadata_type(self) -> np.dtype:
+        return CocoDType
+
+    @staticmethod
+    def from_binary(binary: ARG_TYPE) -> Field:
+        return CocoShapeDecoder()
+
+
+    def to_binary(self) -> ARG_TYPE:
+        return np.zeros(1, dtype=ARG_TYPE)[0]
+
+
+    def encode(self, destination, field, malloc):
+        destination[0] = field
+
+
+    def get_decoder_class(self) -> Type[Operation]:
+        return CocoShapeDecoder
