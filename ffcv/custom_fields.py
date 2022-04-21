@@ -11,12 +11,17 @@ from ffcv.pipeline.compiler import Compiler
 from ffcv.pipeline.allocation_query import AllocationQuery
 from ffcv.libffcv import memcpy
 
-from ffcv.fields import BytesDecoder, BytesField
+from ffcv.fields import BytesField
+from ffcv.fields.bytes import BytesDecoder
 from ffcv.fields.basics import BasicDecoder
 
 if TYPE_CHECKING:
     from ..memory_managers.base import MemoryManage
 
+'''
+Variable 2D Array appears to work!
+(may require more testing)
+'''
 
 class Variable2DArrayDecoder(Operation):
 
@@ -44,7 +49,7 @@ class Variable2DArrayDecoder(Operation):
             for ix in my_range(indices.shape[0]):
                 sample_id = indices[ix]
                 data = mem_read(metadata[sample_id]['ptr'], storage_state)
-                my_memcpy(data, destination[ix].view(np.uint8)) ## is the view needed?
+                my_memcpy(data, destination[ix])
             return destination
 
         return decoder
@@ -86,7 +91,7 @@ class Variable2DArrayField(Field):
         assert len(type_desc) == 1
         dtype = np.dtype(type_desc)['f0']
         second_dim = int(header['second_dim'])
-        return NDArrayField(second_dim, tuple(shape))
+        return Variable2DArrayField(second_dim, dtype)
 
 
     def to_binary(self) -> ARG_TYPE:
@@ -111,7 +116,7 @@ class Variable2DArrayField(Field):
     def get_decoder_class(self) -> Type[Operation]:
         return Variable2DArrayDecoder
 
-
+'''
 class StringDecoder(BasicDecoder):
 
     ## Will the basic decoder work?
@@ -149,8 +154,13 @@ class StringField(Field):
 
     def get_decoder_class(self) -> Type[Operation]:
         return StringDecoder
+'''
 
-
+'''
+CocoShape can successfully encode but torch can't decode because of the nature of the dtype.
+The dtype has a nested structure so that numpy must treat its elements as objects (i.e. np.void type)
+but torch cannot convert an ndarray of np.void into a tensor, which is required for any custom field so far
+'''
 
 CocoDType = np.dtype([
     ('dim', '<u8', (2,)),
@@ -174,8 +184,7 @@ class CocoShapeField(Field):
 
     @staticmethod
     def from_binary(binary: ARG_TYPE) -> Field:
-        return CocoShapeDecoder()
-
+        return CocoShapeField()
 
     def to_binary(self) -> ARG_TYPE:
         return np.zeros(1, dtype=ARG_TYPE)[0]

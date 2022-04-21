@@ -1,4 +1,10 @@
-# YOLOv5 by Ultralytics, GPL-3.0 license
+'''
+Modification of the YOLOv5 custom training on COCO128.
+Uses currently available FFCV methods and pipelines;
+bottlenecks will be observed and further improvements implemented
+'''
+
+# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
 """
 Train a YOLOv5 model on a custom dataset.
 
@@ -22,8 +28,25 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
+import contextlib
+import glob
+import logging
+import platform
+import re
+import shutil
+import signal
+import urllib
+from itertools import repeat
+from multiprocessing.pool import ThreadPool
+from subprocess import check_output
+from zipfile import ZipFile
+
 import numpy as np
+import pandas as pd
+import pkg_resources as pkg
+import cv2
 import torch
+import torchvision
 import torch.distributed as dist
 import torch.nn as nn
 import yaml
@@ -31,12 +54,7 @@ from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import SGD, Adam, AdamW, lr_scheduler
 from tqdm import tqdm
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+from pprint import pprint
 
 import val  # for end-of-epoch mAP
 from models.experimental import attempt_load
@@ -45,7 +63,7 @@ from utils.autoanchor import check_anchors
 from utils.autobatch import check_train_batch_size
 from utils.callbacks import Callbacks
 from utils.datasets import create_dataloader
-from utils.downloads import attempt_download
+from utils.downloads import attempt_download, gsutil_getsize
 from utils.general import (LOGGER, check_dataset, check_file, check_git_status, check_img_size, check_requirements,
                            check_suffix, check_yaml, colorstr, get_latest_run, increment_path, init_seeds,
                            intersect_dicts, labels_to_class_weights, labels_to_image_weights, methods, one_cycle,
@@ -53,13 +71,75 @@ from utils.general import (LOGGER, check_dataset, check_file, check_git_status, 
 from utils.loggers import Loggers
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
 from utils.loss import ComputeLoss
-from utils.metrics import fitness
+from utils.metrics import box_iou, fitness
 from utils.plots import plot_evolve, plot_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, select_device, torch_distributed_zero_first
+
+from ffcv.writer import DatasetWriter
 
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]  # YOLOv5 root directory
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+
+
+def check_dataset(data, autodownload=True):
+    # Download and/or unzip dataset if not found locally
+    # Usage: https://github.com/ultralytics/yolov5/releases/download/v1.0/coco128_with_yaml.zip
+
+    # Download (optional)
+    extract_dir = ''
+    if isinstance(data, (str, Path)) and str(data).endswith('.zip'):  # i.e. gs://bucket/dir/coco128.zip
+        download(data, dir=DATASETS_DIR, unzip=True, delete=False, curl=False, threads=1)
+        data = next((DATASETS_DIR / Path(data).stem).rglob('*.yaml'))
+        extract_dir, autodownload = data.parent, False
+
+    # Read yaml (optional)
+    if isinstance(data, (str, Path)):
+        with open(data, errors='ignore') as f:
+            data = yaml.safe_load(f)  # dictionary
+
+    # Resolve paths
+    path = Path(extract_dir or data.get('path') or '')  # optional 'path' default to '.'
+    if not path.is_absolute():
+        path = (ROOT / path).resolve()
+    for k in 'train', 'val', 'test':
+        if data.get(k):  # prepend path
+            data[k] = str(path / data[k]) if isinstance(data[k], str) else [str(path / x) for x in data[k]]
+
+    # Parse yaml
+    assert 'nc' in data, "Dataset 'nc' key missing."
+    if 'names' not in data:
+        data['names'] = [f'class{i}' for i in range(data['nc'])]  # assign class names if missing
+    train, val, test, s = (data.get(x) for x in ('train', 'val', 'test', 'download'))
+    if val:
+        val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
+        if not all(x.exists() for x in val):
+            LOGGER.info('\nDataset not found, missing paths: %s' % [str(x) for x in val if not x.exists()])
+            if s and autodownload:  # download script
+                root = path.parent if 'path' in data else '..'  # unzip directory i.e. '../'
+                if s.startswith('http') and s.endswith('.zip'):  # URL
+                    f = Path(s).name  # filename
+                    LOGGER.info(f'Downloading {s} to {f}...')
+                    torch.hub.download_url_to_file(s, f)
+                    Path(root).mkdir(parents=True, exist_ok=True)  # create root
+                    ZipFile(f).extractall(path=root)  # unzip
+                    Path(f).unlink()  # remove zip
+                    r = None  # success
+                elif s.startswith('bash '):  # bash script
+                    LOGGER.info(f'Running {s} ...')
+                    r = os.system(s)
+                else:  # python script
+                    r = exec(s, {'yaml': data})  # return None
+                LOGGER.info(f"Dataset autodownload {f'success, saved to {root}' if r in (0, None) else 'failure'}\n")
+            else:
+                raise Exception('Dataset not found.')
+
+    return data  # dictionary
 
 
 def train(hyp,  # path/to/hyp.yaml or hyp dictionary
@@ -298,8 +378,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             train_loader.sampler.set_epoch(epoch)
         pbar = enumerate(train_loader)
         LOGGER.info(('\n' + '%10s' * 7) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'labels', 'img_size'))
-        #if RANK in [-1, 0]:
-            # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', position=0, leave=True)  # progress bar
+        if RANK in [-1, 0]:
+            pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
         optimizer.zero_grad()
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             ni = i + nb * epoch  # number integrated batches (since train start)
@@ -349,8 +429,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             if RANK in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'  # (GB)
-                #pbar.set_description(('%10s' * 2 + '%10.4g' * 5) % (
-                #    f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
+                pbar.set_description(('%10s' * 2 + '%10.4g' * 5) % (
+                    f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
                 callbacks.run('on_train_batch_end', ni, model, imgs, targets, paths, plots, opt.sync_bn)
                 if callbacks.stop_training:
                     return
@@ -638,7 +718,13 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
-    start_time = time.time()
-    opt = parse_opt()
-    main(opt)
-    print("\n\n\n--- Full data and training execution in %s seconds ---\n\n\n" % (time.time() - start_time))
+    #pprint(check_dataset('data/coco.yaml'))
+    train_path = '/mnt/nfs/home/branhung/src/datasets/coco-box/train2017.txt'
+    imgsz = 640
+    batch_size = 16
+    stride = 32
+    _, dataset = create_dataloader(train_path, imgsz, batch_size // WORLD_SIZE, stride)
+    for i in range(20):
+        pprint(dataset[i][1:])
+    #opt = parse_opt()
+    #main(opt)
