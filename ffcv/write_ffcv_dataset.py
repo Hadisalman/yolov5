@@ -19,7 +19,7 @@ from PIL import ExifTags, Image, ImageOps
 from argparse import ArgumentParser
 
 from ffcv.writer import DatasetWriter
-from ffcv.fields import RGBImageField, NDArrayField, BytesField, JSONField
+from ffcv.fields import RGBImageField, NDArrayField, BytesField, JSONField, IntField
 from torchvision.datasets import CocoDetection
 from torch.utils.data import Dataset, Subset
 import torch
@@ -39,6 +39,8 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+file_cwd = os.path.dirname(__file__)
+base_path = os.path.join(file_cwd, 'datasets')
 
 class CocoBoundingBox(Dataset):
     # YOLOv5 train_loader/val_loader, loads images and labels for training and validation
@@ -186,7 +188,7 @@ class CocoBoundingBox(Dataset):
         #img = np.ascontiguousarray(img)
 
         #return torch.from_numpy(img), labels_out, self.img_files[index], shapes
-        return self.converter(img), labels_out, self.img_files[index], shapes
+        return img, labels_out, self.img_files[index], shapes, nl
 
     '''
     UNUSED: translation from image to tensor is delayed to ffcv pipeline instead
@@ -469,13 +471,13 @@ def main(opt):
 
     #B
     
-    for split in ['test']:
-        path = str(data_dir) + '/' + str(split) + '-dev2017.txt'
+    for split in ['test', 'train', 'val']:
+        path = str(data_dir) + '/' + str(split) + ('-dev2017.txt' if split == 'test' else '2017.txt')
         imgsz = 640
         label_pad = False
         my_dataset = CocoBoundingBox(path, imgsz, label_pad = label_pad)
         if subset > 0: my_dataset = Subset(my_dataset, range(subset))
-        custom_writer = DatasetWriter('/mnt/nfs/home/branhung/src/yolov5/ffcv/datasets/' + write_name + '/' + write_name + '_' + split + '.beton', {
+        custom_writer = DatasetWriter(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton', {
             'image': RGBImageField(write_mode=write_mode,
                                 max_resolution=max_resolution,
                                 compress_probability=compress_probability,
@@ -483,6 +485,7 @@ def main(opt):
             'labels': Variable2DArrayField(second_dim=6,dtype=np.dtype('float64')),
             'file': JSONField(),
             'shapes': JSONField(),
+            'labels_len': IntField()
         }, num_workers=num_workers)
         custom_writer.from_indexed_dataset(my_dataset, chunksize=chunk_size)
     

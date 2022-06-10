@@ -26,12 +26,12 @@ from torch.optim import SGD, Adam, AdamW, lr_scheduler
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
+ROOT = FILE.parents[1]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-import val  # for end-of-epoch mAP
+import val_ffcv  # for end-of-epoch mAP
 from models.experimental import attempt_load
 from models.yolo import Model
 from utils.autoanchor import check_anchors
@@ -58,6 +58,10 @@ LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
+def ffcv_collate(labels, label_lengths, batch_size):
+    labels[:,:,0] = torch.arange(batch_size).unsqueeze(1)
+    splitter = torch.vstack([label_lengths, labels.size()[1]-label_lengths]).T.flatten().tolist()
+    return torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
 
 
 def train(hyp,  # path/to/hyp.yaml or hyp dictionary
@@ -218,7 +222,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         LOGGER.info('Using SyncBatchNorm()')
 
     # Trainloader
-    loaders = load_ffcv_dataset(ffcv_path)
+    loaders = load_ffcv_dataset(ffcv_path, batch_size)
     train_loader = loaders['train']
     dataset = CocoBoundingBox(train_path)
     '''
@@ -307,7 +311,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         #if RANK in [-1, 0]:
             # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', position=0, leave=True)  # progress bar
         optimizer.zero_grad()
-        for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+        for i, (imgs, targets_raw, paths, _, target_lengths) in pbar:  # batch -------------------------------------------------------------
+            targets = ffcv_collate(targets_raw, target_lengths, batch_size)
+            
             paths = JSONField.unpack(paths)
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
@@ -462,9 +468,8 @@ def parse_opt(known=False):
     parser.add_argument('--weights', type=str, default=ROOT / 'yolov5s.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
-    parser.add_argument('--data', type=str, default='coco_box', help='dataset name')
     parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch.yaml', help='hyperparameters path')
-    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=640, help='train, val image size (pixels)')
     parser.add_argument('--rect', action='store_true', help='rectangular training')

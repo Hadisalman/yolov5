@@ -3,6 +3,7 @@ Script for ffcv loading the COCO dataset.
 Should be used after writing the COCO dataset to a .beton via write_ffcv_dataset.py
 '''
 
+import os
 from typing import List
 
 import numpy as np
@@ -21,20 +22,23 @@ from ffcv.writer import DatasetWriter
 from custom_fields import Variable2DArrayField, CocoShapeField, \
     Variable2DArrayDecoder, CocoShapeDecoder
 
-BATCH_SIZE = 1
+file_cwd = os.path.dirname(__file__)
+base_path = os.path.join(file_cwd, 'datasets')
 
-def load_ffcv_dataset(write_name):
+def load_ffcv_dataset(write_name, batch_size):
     loaders = {}
     loaders['nc'] = 80 # BAD MAGIC NUMBER, this should be obtained from the written dataset itself
+
     for split in ['train','test','val']:
         image_pipeline: List[Operation] = [SimpleRGBImageDecoder(), ToTensor(), ToDevice('cuda:0', non_blocking=True), ToTorchImage(), Convert(ch.uint8)]
         label_pipeline: List[Operation] = [Variable2DArrayDecoder(), ToTensor(), ToDevice('cuda:0')]
         url_pipeline: List[Operation] = [BytesDecoder()]
         shape_pipeline: List[Operation] = [BytesDecoder()]
+        len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
 
         # Create loaders
-        loaders[split] = Loader('/mnt/nfs/home/branhung/src/yolov5/ffcv/datasets/' + write_name + '/' + write_name + '_' + split + '.beton',
-                                batch_size=BATCH_SIZE,
+        loaders[split] = Loader(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton',
+                                batch_size=batch_size,
                                 num_workers=8,
                                 order=OrderOption.SEQUENTIAL,
                                 drop_last=(split == 'train'),
@@ -42,7 +46,8 @@ def load_ffcv_dataset(write_name):
                                 pipelines={'image': image_pipeline,
                                         'labels': label_pipeline,
                                         'file': url_pipeline,
-                                        'shapes': shape_pipeline})
+                                        'shapes': shape_pipeline,
+                                        'labels_len': len_pipeline})
     return loaders
 
 if __name__ == '__main__':
@@ -51,8 +56,3 @@ if __name__ == '__main__':
     for single_excerpt in loaders['val']:
         print(single_excerpt)
         break
-
-    '''
-    TODO: check the format of the image load
-    TODO: check the effect of json unpack and extract the string
-    '''
