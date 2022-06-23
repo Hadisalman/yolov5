@@ -50,6 +50,7 @@ from utils.metrics import fitness
 from utils.plots import plot_evolve, plot_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, select_device, torch_distributed_zero_first
 
+from write_ffcv_dataset import write_ffcv_dataset
 from load_ffcv_dataset import load_ffcv_dataset
 from write_ffcv_dataset import CocoBoundingBox
 from ffcv.fields import JSONField
@@ -58,8 +59,8 @@ LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
-def ffcv_collate(labels, label_lengths, batch_size):
-    labels[:,:,0] = torch.arange(batch_size).unsqueeze(1)
+def ffcv_collate(labels, label_lengths):
+    labels[:,:,0] = torch.arange(labels.size()[0]).unsqueeze(1)
     splitter = torch.vstack([label_lengths, labels.size()[1]-label_lengths]).T.flatten().tolist()
     return torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
 
@@ -222,9 +223,15 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         LOGGER.info('Using SyncBatchNorm()')
 
     # Trainloader
+    dataset = CocoBoundingBox(train_path)
+    val_dataset = CocoBoundingBox(val_path)
+    for split in ['train', 'val']:
+        ffcv_writes_loc = os.path.join(os.path.dirname(__file__), 'datasets', '/' + ffcv_path + '/' + ffcv_path + '_' + split + '.beton')
+        if not os.path.exists(ffcv_writes_loc):
+            write_ffcv_dataset(dataset if split == 'train' else val_dataset, ffcv_path, split)
+    
     loaders = load_ffcv_dataset(ffcv_path, batch_size)
     train_loader = loaders['train']
-    dataset = CocoBoundingBox(train_path)
     '''
     train_loader, dataset = create_dataloader(train_path, imgsz, batch_size // WORLD_SIZE, gs, single_cls,
                                               hyp=hyp, augment=True, cache=opt.cache, rect=opt.rect, rank=LOCAL_RANK,
@@ -311,10 +318,11 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         #if RANK in [-1, 0]:
             # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', position=0, leave=True)  # progress bar
         optimizer.zero_grad()
-        for i, (imgs, targets_raw, paths, _, target_lengths) in pbar:  # batch -------------------------------------------------------------
-            targets = ffcv_collate(targets_raw, target_lengths, batch_size)
-            
-            paths = JSONField.unpack(paths)
+        for i, (imgs, targets_raw, path_and_shapes_raw, target_lengths) in pbar:  # batch -------------------------------------------------------------
+            targets = ffcv_collate(targets_raw, target_lengths)
+            path_and_shapes = JSONField.unpack(path_and_shapes_raw)
+            paths = [ps['path'] for ps in path_and_shapes]
+
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
 
@@ -379,12 +387,13 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
-                results, maps, _ = val.run(data_dict,
+                results, maps, _ = val_ffcv.run(data_dict,
                                            batch_size=batch_size // WORLD_SIZE * 2,
                                            imgsz=imgsz,
                                            model=ema.ema,
                                            single_cls=single_cls,
                                            dataloader=val_loader,
+                                           dataset=val_dataset,
                                            save_dir=save_dir,
                                            plots=False,
                                            callbacks=callbacks,
@@ -440,13 +449,14 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 strip_optimizer(f)  # strip optimizers
                 if f is best:
                     LOGGER.info(f'\nValidating {f}...')
-                    results, _, _ = val.run(data_dict,
+                    results, _, _ = val_ffcv.run(data_dict,
                                             batch_size=batch_size // WORLD_SIZE * 2,
                                             imgsz=imgsz,
                                             model=attempt_load(f, device).half(),
                                             iou_thres=0.65 if is_coco else 0.60,  # best pycocotools results at 0.65
                                             single_cls=single_cls,
                                             dataloader=val_loader,
+                                            dataset=val_dataset,
                                             save_dir=save_dir,
                                             save_json=is_coco,
                                             verbose=True,
@@ -499,7 +509,7 @@ def parse_opt(known=False):
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
 
     # New argument for ffcv
-    parser.add_argument('--ffcv-path', type=str, default='coco_box', help='ffcv dataset name')
+    parser.add_argument('--ffcv-path', type=str, default='coco', help='ffcv dataset name')
 
     # Weights & Biases arguments
     parser.add_argument('--entity', default=None, help='W&B: Entity')

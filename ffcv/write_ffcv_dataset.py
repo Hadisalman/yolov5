@@ -18,6 +18,14 @@ from multiprocessing.pool import Pool, ThreadPool
 from PIL import ExifTags, Image, ImageOps
 from argparse import ArgumentParser
 
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[1]  # YOLOv5 root directory
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+
+from utils.general import check_dataset
+
 from ffcv.writer import DatasetWriter
 from ffcv.fields import RGBImageField, NDArrayField, BytesField, JSONField, IntField
 from torchvision.datasets import CocoDetection
@@ -188,7 +196,7 @@ class CocoBoundingBox(Dataset):
         #img = np.ascontiguousarray(img)
 
         #return torch.from_numpy(img), labels_out, self.img_files[index], shapes
-        return img, labels_out, self.img_files[index], shapes, nl
+        return img, labels_out, {'path': self.img_files[index], 'shapes': shapes}, nl
 
     '''
     UNUSED: translation from image to tensor is delayed to ffcv pipeline instead
@@ -426,11 +434,26 @@ class DatasetUtils:
 
 
 
+def write_ffcv_dataset(dataset, write_name, split, write_mode='jpg', max_resolution=640, num_workers=16, \
+    chunk_size=100, jpeg_quality=90, subset=-1, compress_probability=0.50):
+    if subset > 0: dataset = Subset(dataset, range(subset))
+    custom_writer = DatasetWriter(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton', {
+        'image': RGBImageField(write_mode=write_mode,
+                            max_resolution=max_resolution,
+                            compress_probability=compress_probability,
+                            jpeg_quality=jpeg_quality),
+        'labels': Variable2DArrayField(second_dim=6,dtype=np.dtype('float64')),
+        'metadata': JSONField(),
+        'labels_len': IntField()
+    }, num_workers=num_workers)
+    custom_writer.from_indexed_dataset(dataset, chunksize=chunk_size)
+
+
 def parse_opt(known=False):
     parser = ArgumentParser()
-    parser.add_argument('--split', type=str, default='val', help='train, test, or val set')
-    parser.add_argument('--data-dir', type=str, default=ROOT / '../../datasets/coco-box', help='Where to find the COCO dataset, directory containing images, labels, and annotations')
-    parser.add_argument('--write-name', type=str, default='coco_box', help='Where to write the new dataset')
+    #parser.add_argument('--split', type=str, default='val', help='train, test, or val set')
+    parser.add_argument('--data', type=str, default=FILE.parents[1] / 'data/coco.yaml', help='dataset.yaml path')
+    parser.add_argument('--write-name', type=str, default='coco', help='Where to write the new dataset')
     parser.add_argument('--write-mode', type=str, default='jpg', help='Mode: raw, smart, proportion, or jpg')
     parser.add_argument('--max-resolution', type=int, default=640, help='Max image side length')
     parser.add_argument('--num-workers', type=int, default=16, help='Number of workers to use')
@@ -444,9 +467,10 @@ def parse_opt(known=False):
 
 
 def main(opt):
-    split, data_dir, write_name, max_resolution, num_workers, chunk_size, subset, jpeg_quality, write_mode, compress_probability = \
-        opt.split, opt.data_dir, opt.write_name, opt.max_resolution, opt.num_workers, \
+    data, write_name, max_resolution, num_workers, chunk_size, subset, jpeg_quality, write_mode, compress_probability = \
+        opt.data, opt.write_name, opt.max_resolution, opt.num_workers, \
         opt.chunk_size, opt.subset, opt.jpeg_quality, opt.write_mode, opt.compress_probability
+    data_dict = check_dataset(data)
 
     '''
     labels field A: max length NDArray with padding
@@ -471,8 +495,9 @@ def main(opt):
 
     #B
     
-    for split in ['test', 'train', 'val']:
-        path = str(data_dir) + '/' + str(split) + ('-dev2017.txt' if split == 'test' else '2017.txt')
+    #for split in ['test', 'train', 'val']:
+    for split in ['train', 'val']:
+        path = data_dict[split]
         imgsz = 640
         label_pad = False
         my_dataset = CocoBoundingBox(path, imgsz, label_pad = label_pad)
@@ -483,19 +508,10 @@ def main(opt):
                                 compress_probability=compress_probability,
                                 jpeg_quality=jpeg_quality),
             'labels': Variable2DArrayField(second_dim=6,dtype=np.dtype('float64')),
-            'file': JSONField(),
-            'shapes': JSONField(),
+            'metadata': JSONField(),
             'labels_len': IntField()
         }, num_workers=num_workers)
         custom_writer.from_indexed_dataset(my_dataset, chunksize=chunk_size)
-    
-    '''
-    path = str(data_dir) + '/' + str(split) + '2017.txt'
-    imgsz = 640
-    label_pad = False
-    my_dataset = CocoBoundingBox(path, imgsz, label_pad = label_pad)
-    return my_dataset
-    '''
     
 
 if __name__ == '__main__':

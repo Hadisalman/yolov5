@@ -27,13 +27,10 @@ base_path = os.path.join(file_cwd, 'datasets')
 
 def load_ffcv_dataset(write_name, batch_size):
     loaders = {}
-    loaders['nc'] = 80 # BAD MAGIC NUMBER, this should be obtained from the written dataset itself
-
-    for split in ['train','test','val']:
+    for split in ['train', 'val']:
         image_pipeline: List[Operation] = [SimpleRGBImageDecoder(), ToTensor(), ToDevice('cuda:0', non_blocking=True), ToTorchImage(), Convert(ch.uint8)]
         label_pipeline: List[Operation] = [Variable2DArrayDecoder(), ToTensor(), ToDevice('cuda:0')]
-        url_pipeline: List[Operation] = [BytesDecoder()]
-        shape_pipeline: List[Operation] = [BytesDecoder()]
+        metadata_pipeline: List[Operation] = [BytesDecoder()]
         len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
 
         # Create loaders
@@ -45,13 +42,12 @@ def load_ffcv_dataset(write_name, batch_size):
                                 custom_fields={'labels': Variable2DArrayField(second_dim=6, dtype=np.dtype('float64'))},
                                 pipelines={'image': image_pipeline,
                                         'labels': label_pipeline,
-                                        'file': url_pipeline,
-                                        'shapes': shape_pipeline,
+                                        'metadata': metadata_pipeline,
                                         'labels_len': len_pipeline})
     return loaders
 
 if __name__ == '__main__':
-    write_name = 'coco_box'
+    write_name = 'coco'
     loaders = load_ffcv_dataset(write_name)
     for single_excerpt in loaders['val']:
         print(single_excerpt)

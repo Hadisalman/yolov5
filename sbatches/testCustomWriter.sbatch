@@ -3,4 +3,4 @@
 #SBATCH --output=../sbatches/logs/ffcv_custom.out
 #SBATCH --error=../sbatches/logs/ffcv_ERROR.err
 
-python ../ffcv/write_coco.py
+python ../ffcv/write_ffcv_dataset.py

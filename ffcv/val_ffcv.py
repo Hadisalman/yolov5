@@ -44,10 +44,11 @@ from utils.general import (LOGGER, box_iou, check_dataset, check_img_size, check
 from utils.metrics import ConfusionMatrix, ap_per_class
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, time_sync
+from ffcv.fields import JSONField
 
 
-def ffcv_collate(labels, label_lengths, batch_size):
-    labels[:,:,0] = torch.arange(batch_size).unsqueeze(1)
+def ffcv_collate(labels, label_lengths):
+    labels[:,:,0] = torch.arange(labels.size()[0]).unsqueeze(1)
     splitter = torch.vstack([label_lengths, labels.size()[1]-label_lengths]).T.flatten().tolist()
     return torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
 
@@ -122,6 +123,7 @@ def run(data,
         dnn=False,  # use OpenCV DNN for ONNX inference
         model=None,
         dataloader=None,
+        dataset=None,
         save_dir=Path(''),
         plots=True,
         callbacks=Callbacks(),
@@ -184,9 +186,11 @@ def run(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     pbar = tqdm(dataloader, desc=s, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
-    for batch_i, (im, targets_raw, paths, shapes, target_lengths) in enumerate(pbar):
-        targets = ffcv_collate(targets_raw, target_lengths, batch_size)
-        paths = JSONField.unpack(paths)
+    for batch_i, (im, targets_raw, path_and_shapes_raw, target_lengths) in enumerate(pbar):
+        targets = ffcv_collate(targets_raw, target_lengths)
+        path_and_shapes = JSONField.unpack(path_and_shapes_raw)
+        paths = [ps['path'] for ps in path_and_shapes]
+        shapes = [ps['shapes'] for ps in path_and_shapes]
 
         t1 = time_sync()
         if pt or jit or engine:
@@ -291,7 +295,7 @@ def run(data,
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        anno_json = str(Path(data.get('path', '../coco')) / 'annotations/instances_val2017.json')  # annotations json
+        anno_json = str(Path(data.get('val', '../coco')).parent / 'annotations/instances_val2017.json')  # annotations json
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
         LOGGER.info(f'\nEvaluating pycocotools mAP... saving {pred_json}...')
         with open(pred_json, 'w') as f:
@@ -306,7 +310,7 @@ def run(data,
             pred = anno.loadRes(pred_json)  # init predictions api
             eval = COCOeval(anno, pred, 'bbox')
             if is_coco:
-                eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.img_files]  # image IDs to evaluate
+                eval.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
             eval.evaluate()
             eval.accumulate()
             eval.summarize()
