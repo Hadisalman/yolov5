@@ -5,4 +5,4 @@
 #SBATCH --output=../sbatches/logs/ffcv_custom.out
 #SBATCH --error=../sbatches/logs/ffcv_ERROR.err
 
-python ../ffcv_train/train_ffcv_dataset.py --img 640 --batch 16 --epochs 5 --data coco.yaml --weights yolov5s.pt
+python ../ffcv_train/train_ffcv_dataset.py --img 640 --batch 16 --epochs 300 --data coco.yaml --weights yolov5s.pt --ffcv-path coco

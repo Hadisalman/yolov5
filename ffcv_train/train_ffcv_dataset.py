@@ -226,8 +226,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     dataset = CocoBoundingBox(train_path)
     val_dataset = CocoBoundingBox(val_path)
     for split in ['train', 'val']:
-        ffcv_writes_loc = os.path.join(os.path.dirname(__file__), 'datasets', '/' + ffcv_path + '/' + ffcv_path + '_' + split + '.beton')
-        if not os.path.exists(ffcv_writes_loc):
+        ffcv_db_loc = os.path.join(os.path.dirname(__file__), 'datasets', '/' + ffcv_path + '_' + split + '.beton')
+        if not os.path.exists(ffcv_db_loc):
             write_ffcv_dataset(dataset if split == 'train' else val_dataset, ffcv_path, split)
     
     loaders = load_ffcv_dataset(ffcv_path, batch_size)

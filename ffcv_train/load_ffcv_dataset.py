@@ -34,7 +34,7 @@ def load_ffcv_dataset(write_name, batch_size):
         len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
 
         # Create loaders
-        loaders[split] = Loader(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton',
+        loaders[split] = Loader(base_path + '/' + write_name + '_' + split + '.beton',
                                 batch_size=batch_size,
                                 num_workers=8,
                                 order=OrderOption.SEQUENTIAL,

@@ -437,7 +437,7 @@ class DatasetUtils:
 def write_ffcv_dataset(dataset, write_name, split, write_mode='jpg', max_resolution=640, num_workers=16, \
     chunk_size=100, jpeg_quality=90, subset=-1, compress_probability=0.50):
     if subset > 0: dataset = Subset(dataset, range(subset))
-    custom_writer = DatasetWriter(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton', {
+    custom_writer = DatasetWriter(base_path + '/' + write_name + '_' + split + '.beton', {
         'image': RGBImageField(write_mode=write_mode,
                             max_resolution=max_resolution,
                             compress_probability=compress_probability,
