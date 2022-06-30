@@ -4,4 +4,4 @@
 #SBATCH --output=../sbatches/logs/ffcv_custom.out
 #SBATCH --error=../sbatches/logs/ffcv_ERROR.err
 
-python ../ffcv_train/load_ffcv_dataset.py
+python ../ffcv_yolov5/load_ffcv_dataset.py
