@@ -70,7 +70,7 @@ Let's get a similar figure of mAP vs. training time here, for ffcv vs. default Y
 ## Configurations
 The configurations corresponding to the above results are as follows:
 
-|   mAP ||   # Epochs |   Time (mins) | Architecture   | Setup    |
+|   mAP |   # Epochs |   Time (mins) | Architecture   | Setup    |
 |:---------------------------------------------------------------------------------------------------------------------------------------|--------:|--------:|-----------:|--------------:|:---------------|:---------|
 | todo | todo |  todo > 300 |       todo | YOLOv5s      | 8 x A100 |
 | todo | todo |         300 |       todo | YOLOv5s      | 8 x A100 |
