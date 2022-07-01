@@ -17,9 +17,7 @@ If you use this setup in your research, cite:
 
 ## Setup
 
-First, clone the YOLOv5 repo via (https://github.com/ultralytics/yolov5), following their installation instructions.
-
-Then, navigate into the YOLOv5 directory and clone this repo; the overall project should have a folder structure as:
+First, clone the YOLOv5 repo via (https://github.com/ultralytics/yolov5), following their installation instructions. Then, navigate into the YOLOv5 directory and clone this repo.
 
 Before training, download a dataset of choice by navigating into the YOLOv5 directory and running the terminal command:
 ```bash
