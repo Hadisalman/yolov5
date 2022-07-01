@@ -53,16 +53,16 @@ Additional parameters can be specified in the training command, in case you want
 ```bash
 python train_ffcv_dataset.py --data FILENAME_OF_DATASET_YAML.yaml --ffcv-path LABEL_OF_FFCV_DATASETS --img 480 --batch 32 --epochs 300 --weights yolov5l.pt --num-workers 12
 ```
-To view all additional parameters and their default values, refer to the `parse_opt()` function in `yolov5/ffcv_yolov5/train_ffcv_dataset`.
+To view all additional parameters and their default values, refer to the `parse_opt()` function in `yolov5/ffcv_yolov5/train_ffcv_dataset.py`.
 
 
 
 ## Training Details
 <p><b>System setup.</b> <!-- TODO --> </p>
 
-<p><b>Dataset setup.</b> To accommodate variable-length labels for bounding boxes in object detection datasets, our ffcv write pipeline contains a custom field, Variable2DArrayField, which accommodates bounding boxes. <!-- Full documentation on Variable2DArrayField can be found on the ffcv api here: -->
+<p><b>Dataset setup.</b> To accommodate variable-length labels for bounding boxes in object detection datasets, our ffcv write pipeline contains a custom field, `Variable2DArrayField`, which accommodates bounding boxes. <!-- Full documentation on Variable2DArrayField can be found on the ffcv api here: -->
 
-This custom field allocates memory for each array equal in size to the maximum-length array, so the ffcv loader will read arbitrary data for array values located beyond than the original array's length and within the maximum length. To truncate to the original arrays, and to collate data labels into batches as ingested by YOLOv5 models, we add bounding box label length as an additional data point in our customized YOLOv5 indexed dataset. Refer to the `CocoBoundingBox` class in `yolov5/ffcv_yolov5/write_ffcv_dataset` for the indexed dataset.
+This custom field allocates memory for each array equal in size to the maximum-length array, so the ffcv loader will read arbitrary data for array values located beyond than the original array's length and within the maximum length. To truncate to the original arrays, and to collate data labels into batches as ingested by YOLOv5 models, we add bounding box label length as an additional data point in our customized YOLOv5 indexed dataset. Refer to the `CocoBoundingBox` class in `yolov5/ffcv_yolov5/write_ffcv_dataset.py` for the indexed dataset.
 </p>
 
 ## Results
@@ -85,6 +85,8 @@ The configurations corresponding to the above results are as follows:
 | todo | todo |         300 |       todo | YOLOv5x      | 1 x A100 |
 
 <!-- Can decide on a different configuration structure if necessary -->
+
+<!-- Copy over some benchmark figures from yolo readme -->
 
 ## FAQ
 <!-- if necessary -->
