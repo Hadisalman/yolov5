@@ -46,6 +46,7 @@ python train_ffcv_dataset.py --data FILENAME_OF_DATASET_YAML.yaml --ffcv-path LA
 where `FILENAME_OF_DATASET_YAML` is as in the above setup, and `LABEL_OF_FFCV_DATASETS` is the name of choice for your ffcv datasets. On the first run of any training loop using a given dataset, this command will write ffcv `.beton` files to
 - `yolov5/ffcv_yolov5/datasets/[LABEL_OF_FFCV_DATASETS]_train.beton`, and
 - `yolov5/ffcv_yolov5/datasets/[LABEL_OF_FFCV_DATASETS]_val.beton`,
+
 respectively, before proceeding to the training loop. On subsequent runs using the same dataset, the existing .beton files will be loaded from as long as the corresponding `LABEL_OF_FFCV_DATASETS` is given in the parameter to the training command.
 
 Additional parameters can be specified in the training command, in case you want to use non-default values. For example, the image size, batch size, number of epochs, initialization for yolov5 weights, and number of workers for ffcv data loading can all be specified:
