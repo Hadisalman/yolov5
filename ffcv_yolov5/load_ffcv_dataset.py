@@ -25,26 +25,28 @@ from custom_fields import Variable2DArrayField, CocoShapeField, \
 file_cwd = os.path.dirname(__file__)
 base_path = os.path.join(file_cwd, 'datasets')
 
-def load_ffcv_dataset(write_name, batch_size, num_workers):
-    loaders = {}
-    for split in ['train', 'val']:
-        image_pipeline: List[Operation] = [SimpleRGBImageDecoder(), ToTensor(), ToDevice('cuda:0', non_blocking=True), ToTorchImage(), Convert(ch.uint8)]
-        label_pipeline: List[Operation] = [Variable2DArrayDecoder(), ToTensor(), ToDevice('cuda:0')]
-        metadata_pipeline: List[Operation] = [BytesDecoder()]
-        len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
+def load_ffcv_dataset(write_name, split, batch_size, num_workers=8, rect=False, augment=False):
+    image_pipeline: List[Operation] = [SimpleRGBImageDecoder(), ToTensor(), ToDevice('cuda:0', non_blocking=True), ToTorchImage(), Convert(ch.uint8)]
+    label_pipeline: List[Operation] = [Variable2DArrayDecoder(), ToTensor(), ToDevice('cuda:0')]
+    metadata_pipeline: List[Operation] = [BytesDecoder()]
+    len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
+    if rect:
+        pass #unimplemented
+    if augment:
+        pass #unimplemented
 
-        # Create loaders
-        loaders[split] = Loader(base_path + '/' + write_name + '_' + split + '.beton',
-                                batch_size=batch_size,
-                                num_workers=num_workers,
-                                order=OrderOption.SEQUENTIAL,
-                                drop_last=(split == 'train'),
-                                custom_fields={'labels': Variable2DArrayField(second_dim=6, dtype=np.dtype('float64'))},
-                                pipelines={'image': image_pipeline,
-                                        'labels': label_pipeline,
-                                        'metadata': metadata_pipeline,
-                                        'labels_len': len_pipeline})
-    return loaders
+    # Create loaders
+    loader = Loader(base_path + '/' + write_name + '_' + split + '.beton',
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            order=OrderOption.RANDOM if split == 'train' else OrderOption.SEQUENTIAL,
+                            drop_last=(split == 'train'),
+                            custom_fields={'labels': Variable2DArrayField(second_dim=6, dtype=np.dtype('float64'))},
+                            pipelines={'image': image_pipeline,
+                                    'labels': label_pipeline,
+                                    'metadata': metadata_pipeline,
+                                    'labels_len': len_pipeline})
+    return loader
 
 if __name__ == '__main__':
     write_name = 'coco'

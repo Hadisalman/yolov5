@@ -47,10 +47,13 @@ from utils.torch_utils import select_device, time_sync
 from ffcv.fields import JSONField
 
 
-def ffcv_collate(labels, label_lengths):
+def ffcv_collate(labels, label_lengths, single_cls):
     labels[:,:,0] = torch.arange(labels.size()[0]).unsqueeze(1)
     splitter = torch.vstack([label_lengths, labels.size()[1]-label_lengths]).T.flatten().tolist()
-    return torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
+    batch_labels = torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
+    if single_cls:
+        batch_labels[1,:] = 0
+    return batch_labels
 
 
 def save_one_txt(predn, save_conf, shape, file):
@@ -187,7 +190,7 @@ def run(data,
     jdict, stats, ap, ap_class = [], [], [], []
     pbar = tqdm(dataloader, desc=s, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
     for batch_i, (im, targets_raw, path_and_shapes_raw, target_lengths) in enumerate(pbar):
-        targets = ffcv_collate(targets_raw, target_lengths)
+        targets = ffcv_collate(targets_raw, target_lengths, single_cls)
         path_and_shapes = JSONField.unpack(path_and_shapes_raw)
         paths = [ps['path'] for ps in path_and_shapes]
         shapes = [ps['shapes'] for ps in path_and_shapes]

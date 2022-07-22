@@ -59,10 +59,13 @@ LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
-def ffcv_collate(labels, label_lengths):
+def ffcv_collate(labels, label_lengths, single_cls):
     labels[:,:,0] = torch.arange(labels.size()[0]).unsqueeze(1)
     splitter = torch.vstack([label_lengths, labels.size()[1]-label_lengths]).T.flatten().tolist()
-    return torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
+    batch_labels = torch.cat(torch.split(labels.reshape((-1, 6)), splitter)[::2],0)
+    if single_cls:
+        batch_labels[1,:] = 0
+    return batch_labels
 
 
 def train(hyp,  # path/to/hyp.yaml or hyp dictionary
@@ -230,8 +233,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         if not os.path.exists(ffcv_db_loc):
             write_ffcv_dataset(dataset if split == 'train' else val_dataset, ffcv_path, split)
     
-    loaders = load_ffcv_dataset(ffcv_path, batch_size, num_workers)
-    train_loader = loaders['train']
+    train_loader = load_ffcv_dataset(ffcv_path, 'train', batch_size, num_workers, rect=opt.rect)
     '''
     train_loader, dataset = create_dataloader(train_path, imgsz, batch_size // WORLD_SIZE, gs, single_cls,
                                               hyp=hyp, augment=True, cache=opt.cache, rect=opt.rect, rank=LOCAL_RANK,
@@ -244,7 +246,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
     # Process 0
     if RANK in [-1, 0]:
-        val_loader = loaders['val']
+        val_loader = load_ffcv_dataset(ffcv_path, 'val', batch_size // WORLD_SIZE * 2, num_workers, rect=True)
         '''
         val_loader = create_dataloader(val_path, imgsz, batch_size // WORLD_SIZE * 2, gs, single_cls,
                                        hyp=hyp, cache=None if noval else opt.cache, rect=True, rank=-1,
@@ -297,7 +299,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 f'Using {train_loader.num_workers * WORLD_SIZE} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
                 f'Starting training for {epochs} epochs...')
+    json_errs = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+        LOGGER.info(f'Training on epoch number {epoch}')
         model.train()
 
         # Update image weights (optional, single-GPU only)
@@ -319,8 +323,12 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', position=0, leave=True)  # progress bar
         optimizer.zero_grad()
         for i, (imgs, targets_raw, path_and_shapes_raw, target_lengths) in pbar:  # batch -------------------------------------------------------------
-            targets = ffcv_collate(targets_raw, target_lengths)
-            path_and_shapes = JSONField.unpack(path_and_shapes_raw)
+            targets = ffcv_collate(targets_raw, target_lengths, single_cls)
+            try:
+                path_and_shapes = JSONField.unpack(path_and_shapes_raw)
+            except:
+                json_errs += 1
+                continue
             paths = [ps['path'] for ps in path_and_shapes]
 
             ni = i + nb * epoch  # number integrated batches (since train start)
@@ -468,6 +476,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
         callbacks.run('on_train_end', last, best, plots, epoch, results)
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
+        LOGGER.info(f"\nTotal {json_errs} JSONField errors excepted across {epoch - start_epoch + 1} epochs")
 
     torch.cuda.empty_cache()
     return results

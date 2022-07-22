@@ -18,10 +18,6 @@ from ffcv.fields.basics import BasicDecoder
 if TYPE_CHECKING:
     from ..memory_managers.base import MemoryManage
 
-'''
-Variable 2D Array appears to work!
-(may require more testing)
-'''
 
 class Variable2DArrayDecoder(Operation):
 

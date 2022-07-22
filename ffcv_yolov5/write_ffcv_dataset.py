@@ -55,7 +55,7 @@ class CocoBoundingBox(Dataset):
     cache_version = 0.6  # dataset labels *.cache version
 
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='', label_pad=False):
+                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
         '''
         REMOVED:
         batch size, augmentations, hyperparameters, image weights, rect (vs. square pad), Mosaic
@@ -63,7 +63,6 @@ class CocoBoundingBox(Dataset):
         self.path = path
         self.img_size = img_size
         self.augment = None
-        self.label_pad = label_pad
 
         try:
             f = []  # image files
@@ -71,22 +70,20 @@ class CocoBoundingBox(Dataset):
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
                     f += glob.glob(str(p / '**' / '*.*'), recursive=True)
+                    # f = list(p.rglob('*.*'))  # pathlib
                 elif p.is_file():  # file
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
                         f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
                 else:
                     raise Exception(f'{prefix}{p} does not exist')
             self.img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
+            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.img_files, f'{prefix}No images found'
         except Exception as e:
             raise Exception(f'{prefix}Error loading data from {path}: {e}')
-
-        '''
-        INCLUDED: cache for image/label pairs
-        The YOLOV5 pipeline only accesses labels through reading or generating a cache so it's easier to keep this in place
-        '''
 
         # Check cache
         self.label_files = DatasetUtils.img2label_paths(self.img_files)  # labels
@@ -97,12 +94,16 @@ class CocoBoundingBox(Dataset):
             assert cache['hash'] == DatasetUtils.get_hash(self.label_files + self.img_files)  # same hash
         except Exception:
             cache, exists = self.cache_labels(cache_path, prefix), False  # cache
+        
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists:
             d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
+            #if cache['msgs']:
+                #LOGGER.info('\n'.join(cache['msgs']))  # display warnings
         assert nf > 0 or not augment, f'{prefix}No labels in {cache_path}. Can not train without labels.'
+
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
@@ -110,16 +111,11 @@ class CocoBoundingBox(Dataset):
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
         self.label_files = DatasetUtils.img2label_paths(cache.keys())  # update
-        self.n = len(shapes) # number of images
-        self.indices = range(self.n)
-
-        '''
-        EXCLUDED: single-class training or filter to only certain classes
-        '''
-        self.single_cls = None
-        self.included_classes = None
-        if self.single_cls or self.included_classes:
-            pass
+        bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
+        nb = bi[-1] + 1  # number of batches
+        self.batch = bi  # batch index of image
+        self.n = n
+        self.indices = range(n)
 
         '''
         EXCLUDED: Load rectangular images, no square padding
@@ -127,17 +123,6 @@ class CocoBoundingBox(Dataset):
         self.rect = None
         if self.rect:
             pass
-
-        '''
-        EXCLUDED: Cache images for downstream dataloader; ffcv will do this instead
-        '''
-
-        '''
-        Calculate max length labels for padding
-        '''
-        self.max_label = None
-        if self.label_pad:
-            self.max_label = max([self.__getitem__(i)[1].shape[0] for i in range(self.n)])
 
         self.converter = transforms.Compose([transforms.ToTensor()])
 
@@ -187,8 +172,6 @@ class CocoBoundingBox(Dataset):
         labels_out = np.zeros((nl, 6))
         if nl:
             labels_out[:, 1:] = labels
-        if self.label_pad:
-            labels_out = np.vstack(labels_out, np.zeros((self.max_label-nl,6)))
         labels_out = np.ascontiguousarray(labels_out)
 
         # Convert
@@ -196,8 +179,8 @@ class CocoBoundingBox(Dataset):
         #img = np.ascontiguousarray(img)
 
         #return torch.from_numpy(img), labels_out, self.img_files[index], shapes
-        return img, labels_out, {'path': self.img_files[index], 'shapes': shapes}, nl
-
+        return img, labels_out, {'path': self.img_files[index].encode('ascii', 'ignore').decode('utf-8'), 'shapes': shapes}, nl
+        
     '''
     UNUSED: translation from image to tensor is delayed to ffcv pipeline instead
     '''
@@ -499,8 +482,7 @@ def main(opt):
     for split in ['train', 'val']:
         path = data_dict[split]
         imgsz = 640
-        label_pad = False
-        my_dataset = CocoBoundingBox(path, imgsz, label_pad = label_pad)
+        my_dataset = CocoBoundingBox(path, imgsz)
         if subset > 0: my_dataset = Subset(my_dataset, range(subset))
         custom_writer = DatasetWriter(base_path + '/' + write_name + '/' + write_name + '_' + split + '.beton', {
             'image': RGBImageField(write_mode=write_mode,
