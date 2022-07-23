@@ -21,19 +21,60 @@ from ffcv.writer import DatasetWriter
 
 from custom_fields import Variable2DArrayField, CocoShapeField, \
     Variable2DArrayDecoder, CocoShapeDecoder
+from custom_transforms import ImageRandomPerspective, LabelRandomPerspective, ImageAlbumentation, LabelAlbumentation, \
+    HSVGain, ImageRandomFlipUD, LabelRandomFlipUD, ImageRandomFlipLR, LabelRandomFlipLR, SimpleRGB2BGR
 
 file_cwd = os.path.dirname(__file__)
 base_path = os.path.join(file_cwd, 'datasets')
 
-def load_ffcv_dataset(write_name, split, batch_size, num_workers=8, rect=False, augment=False):
-    image_pipeline: List[Operation] = [SimpleRGBImageDecoder(), ToTensor(), ToDevice('cuda:0', non_blocking=True), ToTorchImage(), Convert(ch.uint8)]
-    label_pipeline: List[Operation] = [Variable2DArrayDecoder(), ToTensor(), ToDevice('cuda:0')]
+def load_ffcv_dataset(write_name, split, batch_size, imgsz=640, num_workers=8, hyp=None, mosaic=False, augment=False):
+    if augment or mosaic:
+        assert hyp is not None, 'Hyperparameters dict required for augmentation'
+
+    image_pipeline: List[Operation] = [SimpleRGBImageDecoder()]
+    label_pipeline: List[Operation] = [Variable2DArrayDecoder()]
     metadata_pipeline: List[Operation] = [BytesDecoder()]
     len_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
-    if rect:
-        pass #unimplemented
+    if mosaic:
+        pass # unimplemented
     if augment:
-        pass #unimplemented
+        image_pipeline.extend([
+            SimpleRGB2BGR(),
+            ImageRandomPerspective(degrees=hyp['degrees'],
+                                    translate=hyp['translate'],
+                                    scale=hyp['scale'],
+                                    shear=hyp['shear'],
+                                    perspective=hyp['perspective']),
+            ImageAlbumentation(),
+            HSVGain(hgain=hyp['hsv_h'],
+                    sgain=hyp['hsv_s'],
+                    vgain=hyp['hsv_v']),
+            ImageRandomFlipUD(flip_prob=hyp['flipud']),
+            ImageRandomFlipLR(flip_prob=hyp['fliplr']),
+            SimpleRGB2BGR(), # simple conversion is symmetric between RGB and BGR; this functions as BGR -> RGB
+        ])
+        label_pipeline.extend([
+            LabelRandomPerspective(width=imgsz,
+                                height=imgsz,
+                                degrees=hyp['degrees'],
+                                translate=hyp['translate'],
+                                scale=hyp['scale'],
+                                shear=hyp['shear'],
+                                perspective=hyp['perspective']),
+            LabelAlbumentation(imgsz=imgsz),
+            LabelRandomFlipUD(flip_prob=hyp['flipud']),
+            LabelRandomFlipLR(flip_prob=hyp['fliplr'])
+        ])
+    image_pipeline.extend([
+        ToTensor(),
+        ToDevice('cuda:0', non_blocking=True),
+        ToTorchImage(),
+        Convert(ch.uint8)
+    ])
+    label_pipeline.extend([
+        ToTensor(),
+        ToDevice('cuda:0')
+    ])
 
     # Create loaders
     loader = Loader(base_path + '/' + write_name + '_' + split + '.beton',

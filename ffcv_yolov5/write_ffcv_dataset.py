@@ -154,31 +154,15 @@ class CocoBoundingBox(Dataset):
         if labels.size:  # normalized xywh to pixel xyxy format
             labels[:, 1:] = DatasetUtils.xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
-        '''
-        EXCLUDED: linear transformations (center, perspective, rotation, scale, shear, translation)
-        '''
-        if self.augment:
-            pass
-
         nl = len(labels)  # number of labels
         if nl:
             labels[:, 1:5] = DatasetUtils.xyxy2xywhn(labels[:, 1:5], w=img.size[0], h=img.size[1], clip=True, eps=1E-3)
-        '''
-        EXCLUDED: Albumentation, HSV color, flip, cutout augmentations
-        '''
-        if self.augment:
-            pass
 
         labels_out = np.zeros((nl, 6))
         if nl:
             labels_out[:, 1:] = labels
         labels_out = np.ascontiguousarray(labels_out)
 
-        # Convert
-        #img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        #img = np.ascontiguousarray(img)
-
-        #return torch.from_numpy(img), labels_out, self.img_files[index], shapes
         return img, labels_out, {'path': self.img_files[index].encode('ascii', 'ignore').decode('utf-8'), 'shapes': shapes}, nl
         
     '''

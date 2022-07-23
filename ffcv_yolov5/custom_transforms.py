@@ -294,7 +294,7 @@ class HSVGain(Operation):
         self.sgain = sgain
         self.vgain = vgain
     
-    def generate_code(self) --> Callable:
+    def generate_code(self) -> Callable:
 
         parallel_range = Compiler.get_iterator()
 
@@ -381,7 +381,7 @@ class LabelRandomFlipUD(Operation):
         return (replace(previous_state, jit_mode=True), AllocationQuery(previous_state.shape, previous_state.dtype))
 
 
-class ImageRandomFlipUD(Operation):
+class ImageRandomFlipLR(Operation):
     def __init__(self, flip_prob: float = 0.5):
         super().__init__()
         self.flip_prob = flip_prob
@@ -432,5 +432,20 @@ class LabelRandomFlipLR(Operation):
 
         return fliplr
 
+    def declare_state_and_memory(self, previous_state: State) -> Tuple[State, Optional[AllocationQuery]]:
+        return (replace(previous_state, jit_mode=True), AllocationQuery(previous_state.shape, previous_state.dtype))
+
+
+class SimpleRGB2BGR(Operation):
+    def __init__(self):
+        super().__init__()
+
+    def generate_code(self) -> Callable:
+
+        def rgb2bgr(images, dst):
+            dst = images[:,:,:,::-1]
+        
+        return rgb2bgr
+    
     def declare_state_and_memory(self, previous_state: State) -> Tuple[State, Optional[AllocationQuery]]:
         return (replace(previous_state, jit_mode=True), AllocationQuery(previous_state.shape, previous_state.dtype))

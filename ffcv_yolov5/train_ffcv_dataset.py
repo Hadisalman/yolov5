@@ -233,7 +233,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         if not os.path.exists(ffcv_db_loc):
             write_ffcv_dataset(dataset if split == 'train' else val_dataset, ffcv_path, split)
     
-    train_loader = load_ffcv_dataset(ffcv_path, 'train', batch_size, num_workers, rect=opt.rect)
+    train_loader = load_ffcv_dataset(ffcv_path, 'train', batch_size, imgsz, num_workers, hyp=hyp, augment=True)
     '''
     train_loader, dataset = create_dataloader(train_path, imgsz, batch_size // WORLD_SIZE, gs, single_cls,
                                               hyp=hyp, augment=True, cache=opt.cache, rect=opt.rect, rank=LOCAL_RANK,
